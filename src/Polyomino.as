@@ -44,7 +44,7 @@ package
 				var matrix:Matrix3D = new Matrix3D();
 				matrix.appendTranslation(x, y, z);
 				
-				var cube:Cube3D = new Cube3D(1, 1, 1);
+				var cube:Cube3D = new Cube3D(0.99, 0.99, 0.99, new <Number>[0.33, 0.33, 0.33, 0.33]);
 				cube.transform(matrix);
 				
 				output.append(cube);

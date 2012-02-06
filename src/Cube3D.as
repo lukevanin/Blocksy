@@ -6,9 +6,12 @@ package
 
 	public class Cube3D extends Shape3D
 	{
-		public function Cube3D(w:Number = 1.0, h:Number = 1.0, d:Number = 1.0)
+		private var color:Vector.<Number>;
+		
+		public function Cube3D(w:Number, h:Number, d:Number, color:Vector.<Number>)
 		{
 			super();
+			this.color = color;
 			
 			w /= 2;
 			h /= 2;
@@ -27,9 +30,10 @@ package
 			var m:Matrix3D = new Matrix3D();
 			m.appendTranslation(x, y, z);
 			m.appendRotation(angle, new Vector3D(i, j, k));
-				
-			var plane:Plane3D = new Plane3D();
+			
+			var plane:Plane3D = new Plane3D(1, 1, color);
 			plane.transform(m);
+			plane.calculateNormals();
 			append(plane);
 		}
 	}

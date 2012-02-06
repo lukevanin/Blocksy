@@ -2,24 +2,37 @@ package
 {
 	public class Plane3D extends Shape3D
 	{
-		public function Plane3D(w:Number = 1, h:Number = 1)
+		public function Plane3D(w:Number, h:Number, color:Vector.<Number>)
 		{
 			super()
 			
 			w *= 0.5;
 			h *= 0.5;
 			
+			var r:Number = color[0];
+			var g:Number = color[1];
+			var b:Number = color[2];
+			var a:Number = color[3];
+			
 			vertices = new <Number>[
-				-w, -h, 0,  0, 0, -1,  0, 0,
-				-w, +h, 0,  0, 0, -1,  0, 1,
-				+w, +h, 0,  0, 0, -1,  1, 1,
-				+w, -h, 0,  0, 0, -1,  1, 0,
+				-w, -h, 0,  0, 0, -1,  0, 0,  r, g, b, a, 
+				-w, +h, 0,  0, 0, -1,  0, 1,  r, g, b, a,
+				+w, +h, 0,  0, 0, -1,  1, 1,  r, g, b, a,
+				+w, -h, 0,  0, 0, -1,  1, 0,  r, g, b, a,
 			];
 			
 			indices = new <uint>[
 				0, 1, 2,
 				2, 3, 0,
 			];				
+		}
+		
+		final public function calculateNormals():void
+		{
+			calculateNormal(0, 3, 0, 1);
+			calculateNormal(1, 0, 1, 2);
+			calculateNormal(2, 1, 2, 3);
+			calculateNormal(3, 2, 3, 0);
 		}
 		
 		final public function setuv(uv:Vector.<Number>):void

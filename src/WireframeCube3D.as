@@ -30,7 +30,7 @@ package
 		
 		private function addSegment(x:Number, y:Number, z:Number, width:Number, height:Number, depth:Number):void
 		{
-			var cube:Cube3D = new Cube3D(width, height, depth);
+			var cube:Cube3D = new Cube3D(width, height, depth, new <Number>[0, 0, 0]);
 			var matrix:Matrix3D = new Matrix3D();
 			matrix.appendTranslation(x, y, z);
 			cube.transform(matrix);

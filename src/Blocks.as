@@ -1,9 +1,6 @@
 package
 {
-	import com.adobe.utils.AGALMiniAssembler;
 	import com.adobe.utils.PerspectiveMatrix3D;
-	import com.greensock.TweenLite;
-	import com.greensock.TweenMax;
 	
 	import flash.display.Bitmap;
 	import flash.display.BitmapData;
@@ -15,62 +12,45 @@ package
 	import flash.display.StageScaleMode;
 	import flash.display3D.Context3D;
 	import flash.display3D.Context3DBlendFactor;
-	import flash.display3D.Context3DClearMask;
 	import flash.display3D.Context3DCompareMode;
-	import flash.display3D.Context3DProgramType;
 	import flash.display3D.Context3DRenderMode;
 	import flash.display3D.Context3DTextureFormat;
 	import flash.display3D.Context3DTriangleFace;
-	import flash.display3D.Context3DVertexBufferFormat;
-	import flash.display3D.IndexBuffer3D;
-	import flash.display3D.Program3D;
-	import flash.display3D.VertexBuffer3D;
 	import flash.display3D.textures.Texture;
 	import flash.events.Event;
 	import flash.events.KeyboardEvent;
-	import flash.events.MouseEvent;
+	import flash.events.TimerEvent;
 	import flash.geom.Matrix;
 	import flash.geom.Matrix3D;
-	import flash.geom.Point;
-	import flash.geom.Rectangle;
 	import flash.geom.Vector3D;
 	import flash.ui.Keyboard;
-	import flash.utils.ByteArray;
 	import flash.utils.Dictionary;
-	import flash.utils.getTimer;
+	import flash.utils.Timer;
+	import flash.utils.setTimeout;
 	
+	// TODO: fix bug where parts extend past edges of grid
 	public class Blocks extends Sprite
 	{
-//		[Embed(source="..\\assets\\textures\\grid-test.png")]
-//		private static const TestTextureClass:Class;
+		[Embed(source="..\\assets\\textures\\grid-transparent.png")]
+		private static const TransparentGridTextureClass:Class;
+
+		[Embed(source="..\\assets\\textures\\grid-opaque.png")]
+		private static const OpaqueGridTextureClass:Class;
 
 		[Embed(source="..\\assets\\textures\\texture-wall.png")]
 		private static const WallTextureClass:Class;
 
-		[Embed(source="..\\assets\\textures\\texture-block.png")]
+		[Embed(source="..\\assets\\textures\\texture-block-placed-01.png")]
 		private static const BlockTextureClass:Class;
 
-		[Embed(source="..\\assets\\textures\\texture-block-placed.png")]
-		private static const PlaceTexture:Class;
-		
+		[Embed(source="..\\assets\\textures\\texture-block-placed-01.png")]
+		private static const PlaceTextureClass:Class;
+
 		private var stage3D:Stage3D;
-		private var context3D:Context3D;
-		private var worldMatrix:Matrix3D;
+		private var context:Context3D;
 		private var viewMatrix:Matrix3D;
 		private var projectionMatrix:PerspectiveMatrix3D;
 		private var keys:Dictionary;
-		private var qStart:Quaternion;
-		private var qEnd:Quaternion;
-		private var qCurrent:Quaternion;
-		private var p:Vector3D;
-		private var r:Vector3D;
-		private var i:Number;
-		private var j:Number;
-		private var vCurrent:Vector3D;
-		private var vEnd:Vector3D;
-		private var vStart:Vector3D;
-		private var polyominos:Vector.<Polyomino>;
-		private var index:int;
 		private var shape:Shape3D;
 		private var grid:Shape3D;
 		private var gridWidth:int;
@@ -78,10 +58,24 @@ package
 		private var gridDepth:int;
 		private var wallTexture:Texture;
 		private var blockTexture:Texture;
-		private var cells:Vector.<Number>;
 		private var polyomino:Polyomino;
 		private var places:Shape3D;
 		private var placeTexture:Texture;
+		private var timer:Timer;
+		private var wallMaterial:AmbientLightTextureMaterial;
+		private var blockMaterial:AmbientLightTextureMaterial;
+		private var placeMaterial:AmbientLightTextureMaterial;
+		private var polyominos:Polyominos;
+		private var cells:Cells;
+//		private var piece:PolyominoController;
+		private var finalRotation:Quaternion;
+		private var finalPosition:Vector3D;
+		private var rotationAnimator:QuaternionAnimator;
+		private var positionAnimator:Vector3DAnimator;
+		private var currentPosition:Vector3D;
+		private var currentRotation:Quaternion;
+		private var isGameRunning:Boolean;
+		private var colors:Colors;
 		
 		public function Blocks()
 		{
@@ -106,294 +100,154 @@ package
 		private function handleContext3DCreate(event:Event):void
 		{
 			stage3D.removeEventListener(Event.CONTEXT3D_CREATE, handleContext3DCreate);
-			context3D = stage3D.context3D;
+			context = stage3D.context3D;
 			
-			trace(">> driverInfo=" + context3D.driverInfo);
+			trace(">> driverInfo=" + context.driverInfo);
 			
-			context3D.enableErrorChecking = true;
+			context.enableErrorChecking = true;
 			
 			updateContext();
-			
-//			context3D.setCulling(Context3DTriangleFace.FRONT);
-//			context3D.setCulling(Context3DTriangleFace.BACK);
-//			context3D.setCulling(Context3DTriangleFace.NONE);
 
-			wallTexture = createMipTexture((new WallTextureClass() as Bitmap).bitmapData);
-			blockTexture = createMipTexture((new BlockTextureClass() as Bitmap).bitmapData);
-			placeTexture = createMipTexture((new PlaceTexture() as Bitmap).bitmapData);
+			viewMatrix = new Matrix3D();
+			projectionMatrix = new PerspectiveMatrix3D();
 			
-//			vertexShader = assembleVertexShader( 
-//				"m44 op, va0, vc0\n" +
-//				"mov v0, va1");
+			wallTexture = Util.createMipTexture(context, (new WallTextureClass() as Bitmap).bitmapData);
+			blockTexture = Util.createMipTexture(context, (new BlockTextureClass() as Bitmap).bitmapData);
+			placeTexture = Util.createMipTexture(context, (new PlaceTextureClass() as Bitmap).bitmapData);
 			
-			//			fragmentShader = assembleFragmentShader(
-			//				"mov oc, v0");			
+			wallMaterial = AmbientLightTextureMaterial.create(wallTexture);
+			blockMaterial = AmbientLightTextureMaterial.create(blockTexture);
+			placeMaterial = AmbientLightTextureMaterial.create(placeTexture);
 			
-//			fragmentShader = assembleFragmentShader(
-//				"tex ft0, v0, fs0 <2d,repeat,miplinear>\n" +
-//				"mov oc, ft0");
+			polyominos = new Polyominos();
 			
-			//			fragmentShader = assembleFragmentShader(
-			//				"tex ft0, v0, fs0 <2d,repeat,linear> \n" + //sample texture
-			//				"div ft0.rgb, ft0.rgb, ft0.a \n" +  // un-premultiply png
-			//				"mov oc, ft0" //output fixed RGB
-			//				);
+			var factory:TestPolyominosFactory = new TestPolyominosFactory(polyominos);
+			factory.addSimple();
+			factory.addFlat();
+//			factory.addComplex();
 			
-			polyominos = new Vector.<Polyomino>();
+			var a:Number = 0.25;
+			var b:Number = 0.125;
+			var c:Number = 0.0625;
 			
-			// One
-			addPolyomino(new <Number>[
-				0, 0, 0,
-				]);
+			colors = new Colors();
+			colors.add(new <Number>[a, c, c, 1]); // red
+//			colors.add(new <Number>[a, b, c, 1]); // orange
+			colors.add(new <Number>[a, a, c, 1]); // yellow
+//			colors.add(new <Number>[b, a, c, 1]); // yellow green
+			colors.add(new <Number>[c, a, c, 1]); // green
+//			colors.add(new <Number>[c, a, b, 1]); // blue green
+			colors.add(new <Number>[c, a, a, 1]); // cyan
+//			colors.add(new <Number>[c, b, a, 1]); // green blue
+			colors.add(new <Number>[c, c, a, 1]); // blue
+//			colors.add(new <Number>[b, c, a, 1]); // purple blue
+			colors.add(new <Number>[a, c, a, 1]); // magenta
+//			colors.add(new <Number>[a, c, b, 1]); // magenta red
 			
-			// Two
-			addPolyomino(new <Number>[
-				0, 0, 0,
-				1, 0, 0,
-				]);
-
-			// Three
-			addPolyomino(new <Number>[
-				0, 0, 0,
-				1, 0, 0,
-				2, 0, 0,
-				]);
-
-			// Four
-			addPolyomino(new <Number>[
-				0, 0, 0,
-				1, 0, 0,
-				2, 0, 0,
-				3, 0, 0,
-				]);
+			polyominos.random();
 			
-			// Short L
-			addPolyomino(new <Number>[
-				0, 0, 0,
-				1, 0, 0,
-				0, 1, 0
-				]);
+			finalRotation = Quaternion.createFromEuler(0, 0, 0);
+			currentRotation = finalRotation.clone();
 			
-			// Long L
-			addPolyomino(new <Number>[
-				0, 0, 0,
-				1, 0, 0,
-				0, 1, 0,
-				0, 2, 0
-				]);
+			finalPosition = new Vector3D(0, 0, 0, 0);
+			currentPosition = finalPosition.clone();
 			
-			// T
-			addPolyomino(new <Number>[
-				0, 0, 0,
-				-1, 0, 0,
-				+1, 0, 0,
-				0, 1, 0
-				]);
-			
-			// Square
-			addPolyomino(new <Number>[
-				0, 0, 0,
-				1, 0, 0,
-				1, 1, 0,
-				0, 1, 0
-				]);
-			
-			// Plus
-			addPolyomino(new <Number>[
-				0, 0, 0,
-				1, 0, 0,
-				-1, 0, 0,
-				0, 1, 0,
-				0, -1, 0
-			]);
-			
-			// Zig-zag
-			addPolyomino(new <Number>[
-				0, 0, 0,
-				-1, 0, 0,
-				0, 1, 0,
-				1, 1, 0
-				]);
-			
-			// C
-			addPolyomino(new <Number>[
-				0, 0, 0,
-				0, 1, 0,
-				0, -1, 0,
-				1, 1, 0,
-				1, -1, 0
-			]);
-			
-			// Long Zig-zag
-			addPolyomino(new <Number>[
-				0, 0, 0,
-				0, 1, 0,
-				0, -1, 0,
-				1, 1, 0,
-				-1, -1, 0
-			]);
-			
-			// 3D corner
-			addPolyomino(new <Number>[
-				0, 0, 0,
-				1, 0, 0,
-				0, -1, 0,
-				0, 0, -1
-				]);
-			
-			// 3D Offset corner 1
-			addPolyomino(new <Number>[
-				0, 0, 0,
-				1, 0, 0,
-				1, 0, -1,
-				0, -1, 0,
-				]);
-			
-			// 3D Offset corner 1
-			addPolyomino(new <Number>[
-				0, 0, 0,
-				1, 0, 0,
-				0, -1, -1,
-				0, -1, 0,
-				]);
-			
-			// 3D T
-			addPolyomino(new <Number>[
-				0, 0, 0,
-				1, 0, 0,
-				-1, 0, 0,
-				0, -1, 0,
-				0, 0, -1
-				]);
-			
-			// 3D Zig-zag
-			addPolyomino(new <Number>[
-				0, 0, 0,
-				1, 0, 0,
-				1, 0, -1,
-				0, -1, 0,
-				0, -1, 1
-				]);
-			
-			// Long Zig-zag
-			addPolyomino(new <Number>[
-				0, 0, 0,
-				0, 1, 0,
-				0, -1, 0,
-				1, 1, 0,
-				0, -1, -1
-			]);			
-			index = 0;
+			rotationAnimator = QuaternionAnimator.create(currentRotation);
+			positionAnimator = Vector3DAnimator.create(currentPosition);			
 			
 			gridWidth = 5;
 			gridHeight = 5;
-			gridDepth = 2;
+			gridDepth = 10;
 			
 			updateGrid();
-			updateShape();
+			updatePolyomino();
 			updatePlaces();
 			
-			p = new Vector3D();
-			r = new Vector3D();
-			
-			worldMatrix = new Matrix3D();
-			
-			viewMatrix = new Matrix3D();
-
-			projectionMatrix = new PerspectiveMatrix3D();
-			
-			i = 0;
-			j = 0;
-			
 			keys = new Dictionary();
+			
+			addEventListener(Event.RESIZE, handleResize);
+			addEventListener(Event.FULLSCREEN, handleResize);
+			addEventListener(Event.ENTER_FRAME, handleFrame);
 			
 			stage.addEventListener(KeyboardEvent.KEY_DOWN, handleKey);
 			stage.addEventListener(KeyboardEvent.KEY_UP, handleKey);
 			
-			addEventListener(Event.ENTER_FRAME, handleFrame);
-			addEventListener(Event.RESIZE, handleResize);
-			addEventListener(Event.FULLSCREEN, handleResize);
+			polyominos.addEventListener(Event.CHANGE, handlePolyominosChange);
+			
+			startGame();
 		}
 		
-//		private function assembleVertexShader(input:String):ByteArray
-//		{
-//			return assemble(Context3DProgramType.VERTEX, input);
-//		}
-		
-//		private function assembleFragmentShader(input:String):ByteArray
-//		{
-//			return assemble(Context3DProgramType.FRAGMENT, input);
-//		}
-		
-//		private function assemble(type:String, input:String):ByteArray
-//		{
-//			var assembler:AGALMiniAssembler = new AGALMiniAssembler();
-//			assembler.assemble(type, input);
-//			return assembler.agalcode;
-//		}
-		
-		private function createMipTexture(input:BitmapData):Texture
+		private function startGame():void
 		{
-			var w:int = input.width;
-			var h:int = input.height;
-			var level:int = 0;
-			var scale:Number = 1;
-			
-			var output:Texture = context3D.createTexture(w, h, Context3DTextureFormat.BGRA, false);
-			
-			while ((w > 0) && (h > 0)) {
-				var m:Matrix = new Matrix();
-				m.scale(scale, scale);
-				
-				var bitmapData:BitmapData = new BitmapData(w, h, true, 0);
-				bitmapData.draw(input, m, null, null, null, true);
-				output.uploadFromBitmapData(bitmapData, level);
-				
-				w *= 0.5;
-				h *= 0.5;
-				level ++;
-				scale *= 0.5; 
-				
+			if (!isGameRunning) {
+				isGameRunning = true;
+				reset();
 			}
-			
-			return output;
 		}
 		
-		private function addPolyomino(points:Vector.<Number>):void
+		private function stopGame():void
 		{
-			polyominos.push(Polyomino.createFromPoints(points));
+			isGameRunning = false;
+			disposeTimer();
+		}
+		
+		private function reset():void
+		{
+			cells.fill(0);
+			updateGrid();
+			updatePolyomino();
+			updatePlaces();
+			initialiseTimer();
+			restartTimer();
+			startGame();
+		}
+		
+		private function handlePolyominosChange(event:Event):void
+		{
+			updatePolyomino();
 		}
 		
 		private function updateGrid():void
 		{
 			grid = new Grid3D(gridWidth, gridHeight, gridDepth);
-			grid.texture = wallTexture;
+			grid.viewMatrix = viewMatrix;
+			grid.projectionMatrix = projectionMatrix;
 			
-			cells = new Vector.<Number>(gridWidth * gridHeight * gridDepth, true);
+//			grid.texture = wallTexture;
+			grid.material = wallMaterial;
 			
-			for (var z:int = 0; z < gridDepth; z++) {
-				for (var y:int = 0; y < gridHeight; y++) {
-					for (var x:int = 0; x < gridWidth; x++) {
-						setCell(x, y, z, 0);
-					}
-				}
-			}
+			cells = new Cells(gridWidth, gridHeight, gridDepth);
+			cells.fill(0);
+			
+			
+//			cells = new Vector.<Number>(gridWidth * gridHeight * gridDepth, true);
+//			
+//			for (var z:int = 0; z < gridDepth; z++) {
+//				for (var y:int = 0; y < gridHeight; y++) {
+//					for (var x:int = 0; x < gridWidth; x++) {
+//						setCell(x, y, z, 0);
+//					}
+//				}
+//			}
 		}
 		
 		private function updatePlaces():void
 		{
 			places = new Shape3D();
-			places.texture = placeTexture;
+			places.viewMatrix = viewMatrix;
+			places.projectionMatrix = projectionMatrix;
+			places.material = placeMaterial;
 			
 			for (var z:int = 0; z < gridDepth; z++) {
 				for (var y:int = 0; y < gridHeight; y++) {
 					for (var x:int = 0; x < gridWidth; x++) {
-						if (getCell(x, y, z) != 0) {
+						if (cells.get(x, y, z) != 0) {
 							var m:Matrix3D = new Matrix3D();
 							m.appendTranslation(x, y, z);
 
-							var cube:Cube3D = new Cube3D();
+							var cube:Cube3D = new Cube3D(1, 1, 1, colors.get(gridDepth - z - 1));
 							cube.transform(m);
+				
 							
 							places.append(cube);
 						}
@@ -402,43 +256,36 @@ package
 			}
 		}
 		
-		private function updateShape():void
+		private function updatePolyomino():void
 		{
-			var min:int = 0;
-			var max:int = polyominos.length - 1;
+			rotationAnimator.stop();
+			positionAnimator.stop();
+			restartTimer();
+
+			polyomino = polyominos.current;
 			
-			if (index < min)
-				index = max;
-			
-			if (index > max)
-				index = min;
-			
-//			polyomino = polyominos[index].toWireframeShape3D();
-			
-			polyomino = polyominos[index]
 			shape = polyomino.toShape3D();
-			shape.texture = blockTexture;
+			shape.viewMatrix = viewMatrix;
+			shape.projectionMatrix = projectionMatrix;
 			
-			resetRotation();
-			resetPosition();
-		}
-		
-		private function resetRotation():void
-		{
-			qStart = Quaternion.createFromEuler(0, 0, 0);
-			qEnd = Quaternion.createFromEuler(0, 0, 0);
-			qCurrent = Quaternion.createFromEuler(0, 0, 0);
-		}
-		
-		private function resetPosition():void
-		{
+			shape.material = blockMaterial;
+			
+			
+//			piece.rotation = Quaternion.createFromEuler(0, 0, 0);
+			finalRotation.fromEuler(0, 0, 0);
+			currentRotation.copy(finalRotation);
+			
 			var x:int = gridWidth * 0.5;
 			var y:int = gridHeight * 0.5;
 			var z:int = 1;
 			
-			vStart = new Vector3D(x, y, z);
-			vEnd = new Vector3D(x, y, z);
-			vCurrent = new Vector3D(x, y, z);			
+//			piece.position = new Vector3D(x, y, z);
+			finalPosition.x = x;
+			finalPosition.y = y;
+			finalPosition.z = z;
+			
+			currentPosition.copyFrom(finalPosition);
+			
 		}
 		
 		private function handleKey(event:KeyboardEvent):void
@@ -455,12 +302,15 @@ package
 		{
 			return keys[keyCode] != undefined;
 		}
-		
+
 		private function updateKeys():void
 		{
-			var rotate:Boolean = false;
-			var move:Boolean = false;
-			var check:Boolean = false;
+			var krotate:Boolean = false;
+			var kmove:Boolean = false;
+			var kcheck:Boolean = false;
+			
+			var p:Vector3D = new Vector3D();
+			var r:Vector3D = new Vector3D();
 			
 			p.x = 0;
 			p.y = 0;
@@ -475,150 +325,271 @@ package
 			
 			if (isKeyPressed(Keyboard.W)) {
 				r.x = -a;
-				rotate = true;
+				krotate = true;
 			}
 			
 			if (isKeyPressed(Keyboard.S)) {
 				r.x = +a;
-				rotate = true;
+				krotate = true;
 			}
 			
 			if (isKeyPressed(Keyboard.A)) {
 				r.y = -a;
-				rotate = true;
+				krotate = true;
 			}
 			
 			if (isKeyPressed(Keyboard.D)) {
 				r.y = +a;
-				rotate = true;
+				krotate = true;
 			}
 			
 			if (isKeyPressed(Keyboard.Q)) {
 				r.z = -a;
-				rotate = true;
+				krotate = true;
 			}
 			
 			if (isKeyPressed(Keyboard.E)) {
 				r.z = +a;
-				rotate = true;				
+				krotate = true;				
 			}
 			
 			if (isKeyPressed(Keyboard.LEFT)) {
 				p.x = -d;
-				move = true;
+				kmove = true;
 			}
 			
 			if (isKeyPressed(Keyboard.RIGHT)) {
 				p.x = +d;
-				move = true;
+				kmove = true;
 			}
 			
 			if (isKeyPressed(Keyboard.UP)) {
 				p.y = +d;
-				move = true;
+				kmove = true;
 			}
 			
 			if (isKeyPressed(Keyboard.DOWN)) {
 				p.y = -d;
-				move = true;
+				kmove = true;
 			}
 			
 			if (isKeyPressed(Keyboard.EQUAL)) {
 				p.z = -d;
-				move = true;
+				kmove = true;
 			}
 			
 			if (isKeyPressed(Keyboard.MINUS)) {
 				p.z = +d;
-				move = true;
+				kmove = true;
 			}
 			
-			if (isKeyPressed(Keyboard.COMMA)) {
-				index --;
-				updateShape();
-			}
+			if (isKeyPressed(Keyboard.R))
+				reset();
 			
-			if (isKeyPressed(Keyboard.PERIOD)) {
-				index ++;
-				updateShape();
-			}
+			if (isKeyPressed(Keyboard.COMMA))
+				polyominos.previous();
 			
-			if (isKeyPressed(Keyboard.ENTER)) {
-				check = true;
-			}
+			if (isKeyPressed(Keyboard.PERIOD))
+				polyominos.next();
+			
+			if (isKeyPressed(Keyboard.SLASH))
+				polyominos.random();
+			
+			if (isKeyPressed(Keyboard.ENTER))
+				kcheck = true;
 			
 			if (isKeyPressed(Keyboard.SPACE)) {
 				p.z = +d;
-				check = true;
-				move = true;
+//				kcheck = true;
+				kmove = true;
+				checkNextMove();
 			}
 			
-			if (isKeyPressed(Keyboard.F)) {
+			if (isKeyPressed(Keyboard.F))
 				toggleFullScreen();
-			}
 			
-			if (rotate || move || check) {
-				var rotation:Quaternion;
-				var position:Vector3D;
+			if (isKeyPressed(Keyboard.T))
+				toggleTimer();
+			
+			if (krotate)
+				rotate(r.x, r.y, r.z);
+			
+			if (kmove)
+				move(p);
+			
+			if (kcheck)
+				checkNextMove();
+		}
+		
+		private function rotate(x:Number, y:Number, z:Number):void
+		{
+			if (!isGameRunning)
+				return;
+			
+			var q:Quaternion = new Quaternion();
+			q.fromEuler(x, y, z);
+			
+			var rotation:Quaternion = new Quaternion();
+			rotation.multiply(finalRotation, q);
+			rotation.normalise();
+			
+//			var pending:Polyomino = polyomino.clone(); 
+//			pending.transform(Util.getVectorQuaternionMatrix(finalPosition, rotation));
+//			pending.normalise();
+			
+			var pending:Polyomino = getTransformedPolyomino(finalPosition, rotation);
+			
+			if (!checkPolyominoCollision(pending)) {
+				finalRotation = rotation;
+				rotationAnimator.animate(currentRotation.clone(), finalRotation, 0.25);
+//				piece.animateRotation(finalRotation);
+			}
+		}
+		
+		private function move(input:Vector3D):void
+		{
+			if (!isGameRunning)
+				return;
+			
+//			var p:Vector3D = new Vector3D(x, y, z);
+			var position:Vector3D = finalPosition.add(input);
+			
+			var pending:Polyomino = getTransformedPolyomino(position, finalRotation);
+			
+			if (!checkPolyominoCollision(pending)) {
+				finalPosition = position;
+//				piece.animatePosition(finalPosition);
+				positionAnimator.animate(currentPosition.clone(), finalPosition, 0.25);
+			}
+		}
+		
+		private function getTransformedPolyomino(position:Vector3D, rotation:Quaternion):Polyomino
+		{
+			var output:Polyomino = polyomino.clone(); 
+			output.transform(Util.getVectorQuaternionMatrix(position, rotation));
+			output.normalise();
+			return output;
+		}
+		
+		private function handleMoveComplete():void
+		{
+//			checkPlace();
+		}
+		
+		private function handleRotateComplete():void
+		{
+//			checkPlace();
+		}
+		
+		private function checkNextMove():void
+		{
+			if (!isGameRunning)
+				return;
 				
-				if (rotate) {
-					var q:Quaternion = new Quaternion();
-					q.fromEuler(r.x, r.y, r.z);
-					
-					rotation = new Quaternion();
-					rotation.multiply(qEnd, q);
-					rotation.normalise();
+			var v:Vector3D = new Vector3D(0, 0, 1);
+			var pending:Polyomino = getTransformedPolyomino(finalPosition.add(v), finalRotation);
+			
+			if (checkPolyominoCollision(pending)) {
+				var current:Polyomino = getTransformedPolyomino(finalPosition, finalRotation);
+				placePolyomino(current);
+				checkLevelDelay();
+			}
+			else {
+				move(v);
+			}
+		}
+		
+//		private function checkPlace():void
+//		{
+//			if (!isGameRunning || rotationAnimator.isAnimating || positionAnimator.isAnimating)
+//			if (!isGameRunning || rotationAnimator.isAnimating || positionAnimator.isAnimating)
+//				return;
+			
+//			var pending:Polyomino = getTransformedPolyomino(finalPosition, finalRotation);
+//			
+//			if (checkCollision(pending)) {
+//				placePolyomino(pending);
+//				checkLevelDelay();
+//			}
+//		}
+		
+		private function placePolyomino(input:Polyomino):void
+		{
+			cells.setCoordinates(input.points, 1);
+			updatePlaces();
+			polyominos.random();
+		}
+		
+		private function checkEndGame():void
+		{
+			if (!isLevelFilled(0, 0) || !isLevelFilled(1, 0))
+				stopGame();
+		}
+		
+		private function checkLevelDelay():void
+		{
+			setTimeout(checkLevels, 250);			
+		}
+		
+		private function checkLevels():void
+		{
+			clearCompletedLevels();
+			updatePlaces();
+			checkEndGame();
+		}
+		
+		private function clearCompletedLevels():void
+		{
+			var j:int = gridDepth - 1;
+			var i:int = j;
+			
+			while (i >= 0) {
+				if (isLevelFilled(i, 1)) {
+					clearLevel(i);
+					dropLevel(i - 1);
+					checkLevelDelay();
+					return;
 				}
 				else {
-					rotation = qEnd;
-				}
-				
-				if (move) {
-					position = vEnd.add(p);
-				}
-				else {
-					position = vEnd;
-				}
-				
-				var pending:Polyomino = polyomino.clone(); 
-				pending.transform(getPolyominoMatrix(position, rotation));
-				pending.normalise();
-				
-				if (check) {
-					if (checkCollision(pending)) {
-						fillCells(pending.points);
-						updatePlaces();
-						updateShape();
-						return;
-					}
-				}
-				
-				if ((rotate || move) && checkMove(pending)) {
-
-					if (rotate) {
-						i = 0;
-						qStart.copy(qCurrent);
-						qEnd.multiply(qEnd.clone(), q);
-						qEnd.normalise();						
-					}
-					
-					if (move) {
-						j = 0;
-						vStart.copyFrom(vCurrent);
-						vEnd = vEnd.add(p);
-					}
-
+					i--;
 				}
 			}
 		}
 		
-		private function fillCells(points:Vector.<Number>):void
+		private function isLevelFilled(z:int, value:int):Boolean
 		{
-			for (var i:int = 0, n:int = points.length; i < n; i+= 3) {
-				var x:Number = points[i];
-				var y:Number = points[i + 1];
-				var z:Number = points[i + 2];
-				setCell(x, y, z, 1);
+			for (var y:int = 0; y < gridHeight; y++) {
+				for (var x:int = 0; x < gridWidth; x++) {
+					if (cells.get(x, y, z) != value)
+						return false;
+				}
+			}
+			
+			return true;
+		}
+		
+		private function clearLevel(z:int):void
+		{
+			for (var y:int = 0; y < gridHeight; y++) {
+				for (var x:int = 0; x < gridWidth; x++) {
+					cells.set(x, y, z, 0);
+				}
+			}
+		}
+		
+		private function dropLevel(z:int):void
+		{
+			if (z > 0) {
+				for (var y:int = 0; y < gridHeight; y++) {
+					for (var x:int = 0; x < gridWidth; x++) {
+						cells.set(x, y, z + 1, cells.get(x, y, z));
+					}
+				}
+				
+				dropLevel(z - 1);
+			}
+			else if (z == 0) {
+				clearLevel(0);
 			}
 		}
 		
@@ -627,23 +598,23 @@ package
 			grid.append(input);
 		}
 		
-		private function checkCollision(input:Polyomino):Boolean
-		{
-			var points:Vector.<Number> = input.points;
-			
-			for (var i:int = 0, n:int = points.length; i < n; i+= 3) {
-				var x:Number = points[i];
-				var y:Number = points[i + 1];
-				var z:Number = points[i + 2] + 1;
-				
-				if (!isCoordinateValid(x, y, z) || (getCell(x, y, z) != 0))
-					return true;
-			}			
-			
-			return false;
-		}
+//		private function checkCollision(input:Polyomino):Boolean
+//		{
+//			var points:Vector.<Number> = input.points;
+//			
+//			for (var i:int = 0, n:int = points.length; i < n; i+= 3) {
+//				var x:Number = points[i];
+//				var y:Number = points[i + 1];
+//				var z:Number = points[i + 2] + 1;
+//				
+//				if (!cells.isValid(x, y, z) || (cells.get(x, y, z) != 0))
+//					return true;
+//			}			
+//			
+//			return false;
+//		}
 		
-		private function checkMove(input:Polyomino):Boolean
+		private function checkPolyominoCollision(input:Polyomino):Boolean
 		{
 			var points:Vector.<Number> = input.points;
 			
@@ -652,26 +623,11 @@ package
 				var y:Number = points[i + 1];
 				var z:Number = points[i + 2];
 				
-				if (!isCoordinateValid(x, y, z) || (getCell(x, y, z) != 0))
-					return false;
+				if (!cells.isValid(x, y, z) || (cells.get(x, y, z) != 0))
+					return true;
 			}			
 			
-			return true;
-		}
-		
-		private function setCell(x:int, y:int, z:int, value:Number):void
-		{
-			cells[(z * gridWidth * gridHeight) + (y * gridWidth) + x] = value;
-		}
-		
-		private function getCell(x:int, y:int, z:int):Number
-		{
-			return cells[(z * gridWidth * gridHeight) + (y * gridWidth) + x];
-		}
-		
-		private function isCoordinateValid(x:int, y:int, z:int):Boolean
-		{
-			return ((x >= 0) && (x < gridWidth) && (y >= 0) && (y < gridHeight) && (z >= 0) && (z < gridDepth));
+			return false;
 		}
 		
 		private function toggleFullScreen():void
@@ -684,6 +640,45 @@ package
 			updateContext();
 		}
 		
+		private function toggleTimer():void
+		{
+			if (timer == null)
+				initialiseTimer();
+			else
+				disposeTimer();
+		}
+		
+		private function initialiseTimer():void
+		{
+			if (timer == null) {
+				timer = new Timer(1500);
+				timer.addEventListener(TimerEvent.TIMER, handleTimer);
+				timer.start();
+			}
+		}
+		
+		private function disposeTimer():void
+		{
+			if (timer != null) {
+				timer.removeEventListener(TimerEvent.TIMER, handleTimer);
+				timer.stop();
+				timer = null;
+			}
+		}
+		
+		private function restartTimer():void
+		{
+			if (timer != null) {
+				timer.reset();
+				timer.start();
+			}
+		}
+		
+		private function handleTimer(event:TimerEvent):void
+		{
+			checkNextMove();
+		}
+		
 		private function handleResize(event:Event):void
 		{
 			updateContext();
@@ -691,112 +686,59 @@ package
 		
 		private function updateContext():void
 		{
-			context3D.configureBackBuffer(stage.stageWidth, stage.stageHeight, 2, true);			
-		}
-		
-		private function getPolyominoMatrix(position:Vector3D, rotation:Quaternion):Matrix3D
-		{
-			var output:Matrix3D = rotation.toMatrix3D();
-			output.appendTranslation(position.x, position.y, position.z);
-			return output;
-		}
-		
-		private function interpolateVector(output:Vector3D, a:Vector3D, b:Vector3D, i:Number):void
-		{
-			output.x = a.x + (b.x - a.x) * i;
-			output.y = a.y + (b.y - a.y) * i;
-			output.z = a.z + (b.z - a.z) * i;
-			output.w = a.w + (b.w - a.w) * i;
+			context.configureBackBuffer(stage.stageWidth, stage.stageHeight, 2, true);			
 		}
 		
 		private function handleFrame(event:Event):void
 		{
+//			checkPlace();
+			
 			var aspect:Number = stage.stageWidth / stage.stageHeight;
 			var zNear:Number = 0.1;
 			var zFar:Number = 50;
-			var fov:Number = 45 * Math.PI / 180;
+			var fov:Number = 60 * Math.PI / 180;
 			
 			projectionMatrix.perspectiveFieldOfViewLH(fov, aspect, zNear, zFar);
-
 			
-			
-			//
-			i = i + ((1 - i) * 0.125);
-			i = Math.min(i, 1);
-
-			j = j + ((1 - j) * 0.125);
-			j = Math.min(j, 1);
-			
-			qCurrent.lerp(qStart, qEnd, i);
-			qCurrent.normalise();
-		
-			interpolateVector(vCurrent, vStart, vEnd, j);
-			
-			worldMatrix.identity();
-//			worldMatrix.appendTranslation((-gridWidth * 0.5) + 0.5, (-gridHeight * 0.5) + 0.5, gridHeight + 2);
-			worldMatrix.appendTranslation(0.5, 0.5, 0.5);
-			
+			//			
 			viewMatrix.identity();
-			viewMatrix.appendTranslation(-gridWidth * 0.5, -gridHeight * 0.5, gridHeight + 2);			
+			viewMatrix.appendTranslation((-gridWidth * 0.5) + 0.5, (-gridHeight * 0.5) + 0.5, 5);
 			
 			var m:Matrix3D;
-			var _m:Matrix3D;
 
-			context3D.clear(1.0, 1.0, 1.0, 1.0);
-			context3D.setCulling(Context3DTriangleFace.BACK);
+			context.clear(1.0, 1.0, 1.0, 1.0);
+			context.setCulling(Context3DTriangleFace.BACK);
+			context.setBlendFactors(Context3DBlendFactor.ONE, Context3DBlendFactor.ZERO);
+			context.setDepthTest(true, Context3DCompareMode.LESS_EQUAL);
 			
-			
+			// grid
 			m = new Matrix3D();
 			m.appendTranslation(-0.5, -0.5, -0.5);
-			m.append(worldMatrix);
-			
-			_m = m.clone();
-			_m.transpose();
-			_m.invert();
-			context3D.setProgramConstantsFromMatrix(Context3DProgramType.VERTEX, 4, _m, true); //vc4
-			
-			m.append(viewMatrix);
-			m.append(projectionMatrix);
-			
-			grid.matrix = m;
-
-			grid.render(context3D);
+			grid.worldMatrix = m;
+			grid.render(context);
 
 			
+			// placed pieces
 			m = new Matrix3D();
-			m.append(worldMatrix);
-			
-			_m = m.clone();
-			_m.transpose();
-			_m.invert();
-			context3D.setProgramConstantsFromMatrix(Context3DProgramType.VERTEX, 4, _m, true); //vc4
-			
-			m.append(viewMatrix);
-			m.append(projectionMatrix);
-			
-			places.matrix = m;
+			places.worldMatrix = m;
+			places.render(context);
 
-			places.render(context3D);
 
 			
+			// polyomino
+			m = Util.getVectorQuaternionMatrix(currentPosition, currentRotation);
 			
-			m = getPolyominoMatrix(vCurrent, qCurrent);
-			m.append(worldMatrix);
+			shape.worldMatrix = m;
 			
-			_m = m.clone();
-			_m.transpose();
-			_m.invert();
-			context3D.setProgramConstantsFromMatrix(Context3DProgramType.VERTEX, 4, _m, true); //vc4
+			context.setBlendFactors(Context3DBlendFactor.SOURCE_ALPHA, Context3DBlendFactor.ONE_MINUS_SOURCE_ALPHA);
+			context.setCulling(Context3DTriangleFace.FRONT);
+			shape.render(context);
 			
-			m.append(viewMatrix);			
-			m.append(projectionMatrix);
-
-			shape.matrix = m;
+			context.setBlendFactors(Context3DBlendFactor.SOURCE_ALPHA, Context3DBlendFactor.ONE_MINUS_SOURCE_ALPHA);
+			context.setCulling(Context3DTriangleFace.BACK);
+			shape.render(context);
 			
-			context3D.setCulling(Context3DTriangleFace.BACK);
-			shape.render(context3D);
-			
-			context3D.present();
+			context.present();
 		}
 	}
 }

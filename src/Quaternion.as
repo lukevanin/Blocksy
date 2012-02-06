@@ -23,6 +23,11 @@ package
 			this.w = w;
 		}
 		
+		final public function toString():String
+		{
+			return "[Quaternion " + x.toFixed(1) + ", " + y.toFixed(1) + ", " + z.toFixed(1) + ", " + w.toFixed(1) + "]";
+		}
+		
 		final public function get magnitude():Number
 		{
 			return sqrt(x*x + y*y + z*z + w*w);			

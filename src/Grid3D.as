@@ -22,7 +22,7 @@ package
 			m.appendRotation(angle, new Vector3D(i, j, k));
 			m.appendTranslation(x, y, z);
 			
-			var plane:Plane3D = new Plane3D(w, h);
+			var plane:Plane3D = new Plane3D(w, h, new <Number>[0, 0, 0, 0]);
 			plane.setuv(new <Number>[
 				0, 0,
 				0, h,
@@ -30,6 +30,7 @@ package
 				w, 0
 			]);
 			plane.transform(m);
+			plane.calculateNormals();
 			append(plane);
 		}
 	}

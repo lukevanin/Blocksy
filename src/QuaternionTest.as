@@ -73,7 +73,7 @@ package
 			
 			context3D.setCulling(Context3DTriangleFace.FRONT);
 			
-			var shape:Cube3D = new Cube3D();
+			var shape:Cube3D = new Cube3D(1, 1, 1, new <Number>[0, 0, 0]);
 			
 			var numVertices:int = 8;
 			var dataPerVertex:int = 6;
